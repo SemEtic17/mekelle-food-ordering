@@ -1,41 +1,37 @@
-import {PutObjectCommand, S3Client} from "@aws-sdk/client-s3";
-import uniqid from 'uniqid';
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { app } from "../../../firebase.js"; // Make sure your Firebase app is initialized here
+import uniqid from "uniqid";
 
 export async function POST(req) {
-  const data =  await req.formData();
-  if (data.get('file')) {
-    // upload the file
-    const file = data.get('file');
+  const data = await req.formData();
 
-    const s3Client = new S3Client({
-      region: 'us-east-1',
-      credentials: {
-        accessKeyId: process.env.MY_AWS_ACCESS_KEY,
-        secretAccessKey: process.env.MY_AWS_SECRET_KEY,
-      },
-    });
+  if (data.get("file")) {
+    const file = data.get("file");
 
-    const ext = file.name.split('.').slice(-1)[0];
-    const newFileName = uniqid() + '.' + ext;
+    // Initialize Firebase Storage
+    const storage = getStorage(app);
 
-    const chunks = [];
-    for await (const chunk of file.stream()) {
-      chunks.push(chunk);
+    // Generate a unique file name for the image
+    const ext = file.name.split(".").slice(-1)[0]; // Extract the file extension
+    const newFileName = uniqid() + "." + ext;
+
+    // Create a reference to the file in Firebase Storage
+    const storageRef = ref(storage, newFileName);
+
+    try {
+      // Upload the file directly (without converting to buffer)
+      await uploadBytes(storageRef, file, { contentType: file.type });
+
+      // Get the download URL of the uploaded file
+      const link = await getDownloadURL(storageRef);
+
+      // Return the file link as a JSON response
+      return Response.json(link);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      return Response.json({ error: "Upload failed" }, { status: 500 });
     }
-    const buffer = Buffer.concat(chunks);
-
-    const bucket = 'dawid-food-ordering';
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: newFileName,
-      ACL: 'public-read',
-      ContentType: file.type,
-      Body: buffer,
-    }));
-
-
-    const link = 'https://'+bucket+'.s3.amazonaws.com/'+newFileName;
-    return Response.json(link);
   }
-  return Response.json(true);
+
+  return Response.json({ error: "No file found in request" }, { status: 400 });
 }
